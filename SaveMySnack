@@ -1,0 +1,222 @@
+import { useState, useEffect } from "react";
+import { ChefHat, Plus } from "lucide-react";
+import { ImageUpload } from "./components/ImageUpload";
+import { AddItemForm } from "./components/AddItemForm";
+import { PantryList } from "./components/PantryList";
+import { RecipeModal } from "./components/RecipeModal";
+import { Button } from "./components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Toaster } from "./components/ui/sonner";
+import { toast } from "sonner@2.0.3";
+
+interface PantryItem {
+  id: string;
+  name: string;
+  expirationDate: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export default function App() {
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [analyzedIngredient, setAnalyzedIngredient] = useState<{
+    name: string;
+    date: string | null;
+  } | null>(null);
+  const [selectedRecipeItem, setSelectedRecipeItem] = useState<PantryItem | null>(null);
+  const [activeTab, setActiveTab] = useState("upload");
+
+  useEffect(() => {
+    fetchPantryItems();
+  }, []);
+
+  const fetchPantryItems = async () => {
+    try {
+      const { projectId, publicAnonKey } = await import("./utils/supabase/info");
+      
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-5fe05309/pantry`,
+        {
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setPantryItems(data);
+      } else {
+        console.error("Error fetching pantry items:", data);
+        toast.error("Failed to load pantry items");
+      }
+    } catch (error) {
+      console.error("Failed to fetch pantry items:", error);
+      toast.error("Failed to load pantry items");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAnalysisComplete = (result: {
+    ingredientName: string;
+    expirationDate: string | null;
+  }) => {
+    setAnalyzedIngredient({
+      name: result.ingredientName,
+      date: result.expirationDate,
+    });
+    setShowAddForm(true);
+    setActiveTab("add");
+  };
+
+  const handleAddItem = async (item: {
+    name: string;
+    expirationDate: string;
+    notes: string;
+  }) => {
+    try {
+      const { projectId, publicAnonKey } = await import("./utils/supabase/info");
+      
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-5fe05309/pantry`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify(item),
+        }
+      );
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setPantryItems([...pantryItems, data]);
+        setShowAddForm(false);
+        setAnalyzedIngredient(null);
+        setActiveTab("pantry");
+        toast.success(`${item.name} added to pantry!`);
+      } else {
+        console.error("Error adding item:", data);
+        toast.error("Failed to add item to pantry");
+      }
+    } catch (error) {
+      console.error("Failed to add item:", error);
+      toast.error("Failed to add item to pantry");
+    }
+  };
+
+  const handleDeleteItem = async (id: string) => {
+    try {
+      const { projectId, publicAnonKey } = await import("./utils/supabase/info");
+      
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-5fe05309/pantry/${id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        setPantryItems(pantryItems.filter((item) => item.id !== id));
+        toast.success("Item removed from pantry");
+      } else {
+        console.error("Error deleting item");
+        toast.error("Failed to remove item");
+      }
+    } catch (error) {
+      console.error("Failed to delete item:", error);
+      toast.error("Failed to remove item");
+    }
+  };
+
+  const handleViewRecipes = (item: PantryItem) => {
+    setSelectedRecipeItem(item);
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Toaster />
+      
+      {/* Header */}
+      <header className="border-b bg-card">
+        <div className="container mx-auto px-4 py-6">
+          <div className="flex items-center gap-3">
+            <ChefHat className="w-8 h-8 text-primary" />
+            <h1>Smart Pantry Manager</h1>
+          </div>
+          <p className="text-muted-foreground mt-2">
+            Track your ingredients, get expiration reminders, and discover recipes
+          </p>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full max-w-md mx-auto grid-cols-3 mb-8">
+            <TabsTrigger value="upload">Upload Photo</TabsTrigger>
+            <TabsTrigger value="add">Add Manually</TabsTrigger>
+            <TabsTrigger value="pantry">My Pantry</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="upload" className="max-w-2xl mx-auto">
+            <ImageUpload onAnalysisComplete={handleAnalysisComplete} />
+            <p className="text-center text-sm text-muted-foreground mt-4">
+              Take a photo or upload an image of your ingredient. We'll try to identify it and extract the expiration date.
+            </p>
+          </TabsContent>
+
+          <TabsContent value="add" className="max-w-2xl mx-auto">
+            {showAddForm ? (
+              <AddItemForm
+                initialName={analyzedIngredient?.name || ""}
+                initialDate={analyzedIngredient?.date || null}
+                onAdd={handleAddItem}
+                onCancel={() => {
+                  setShowAddForm(false);
+                  setAnalyzedIngredient(null);
+                }}
+              />
+            ) : (
+              <div className="text-center space-y-4">
+                <p className="text-muted-foreground">
+                  Add items to your pantry manually
+                </p>
+                <Button onClick={() => setShowAddForm(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add New Item
+                </Button>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="pantry">
+            <div className="max-w-3xl mx-auto">
+              <PantryList
+                items={pantryItems}
+                onDelete={handleDeleteItem}
+                onViewRecipes={handleViewRecipes}
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
+      </main>
+
+      {/* Recipe Modal */}
+      <RecipeModal
+        isOpen={selectedRecipeItem !== null}
+        onClose={() => setSelectedRecipeItem(null)}
+        ingredientName={selectedRecipeItem?.name || ""}
+      />
+    </div>
+  );
+}
